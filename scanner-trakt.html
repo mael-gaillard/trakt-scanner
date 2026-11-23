@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Scan Disc → Trakt CSV</title>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --card: #181b22;
+      --card-2: #222631;
+      --text: #f3f4f6;
+      --muted: #9ca3af;
+      --accent: #ed1c24; /* Trakt red */
+      --accent-soft: rgba(237, 28, 36, 0.15);
+      --green: #10b981;
+      --blue: #3b82f6;
+      --purple: #a855f7;
+      --border: #2a2f3d;
+    }
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding-bottom: 90px;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: rgba(15, 17, 21, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    header h1 {
+      font-size: 17px;
+      margin: 0;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge-count {
+      background: var(--accent);
+      color: white;
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-weight: 700;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+    }
+
+    /* Scanner */
+    #reader {
+      width: 100%;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #000;
+      min-height: 220px;
+    }
+
+    .scan-controls {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    button {
+      border: none;
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+
+    button:active { transform: scale(0.98); }
+
+    .btn-primary { background: var(--accent); color: white; flex: 1; }
+    .btn-secondary { background: var(--card-2); color: var(--text); border: 1px solid var(--border); }
+    .btn-green { background: var(--green); color: #052e16; font-weight: 700; }
+
+    /* Form */
+    label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    input, textarea {
+      width: 100%;
+      background: var(--card-2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 11px 12px;
+      font-size: 15px;
+      font-family: inherit;
+      margin-bottom: 12px;
+    }
+
+    input:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .row-2 {
+      display: grid;
+      grid-template-columns: 1fr 110px;
+      gap: 10px;
+    }
+
+    .format-pills {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .pill {
+      background: var(--card-2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 10px 6px;
+      border-radius: 10px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .pill.active[data-format="dvd"] {
+      background: rgba(59, 130, 246, 0.2);
+      border-color: var(--blue);
+      color: #93c5fd;
+    }
+
+    .pill.active[data-format="bluray"] {
+      background: rgba(16, 185, 129, 0.2);
+      border-color: var(--green);
+      color: #6ee7b7;
+    }
+
+    .pill.active[data-format="4k"] {
+      background: rgba(168, 85, 247, 0.2);
+      border-color: var(--purple);
+      color: #d8b4fe;
+    }
+
+    .status-bar {
+      font-size: 13px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: var(--card-2);
+      color: var(--muted);
+      margin-bottom: 12px;
+      display: none;
+    }
+
+    .status-bar.show { display: block; }
+
+    .boxset-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--card-2);
+      padding: 10px 12px;
+      border-radius: 10px;
+      margin-bottom: 12px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    /* List */
+    .item-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .item-title {
+      font-weight: 600;
+      font-size: 15px;
+      margin-bottom: 4px;
+    }
+
+    .item-meta {
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .tag {
+      padding: 2px 7px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 11px;
+    }
+
+    .tag-dvd { background: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+    .tag-bluray { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
+    .tag-4k { background: rgba(168, 85, 247, 0.2); color: #d8b4fe; }
+    .tag-box { background: rgba(245, 158, 11, 0.2); color: #fcd34d; }
+
+    .btn-del {
+      background: transparent;
+      color: var(--muted);
+      padding: 6px 10px;
+      font-size: 16px;
+    }
+
+    /* Bottom bar */
+    .bottom-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(15, 17, 21, 0.95);
+      backdrop-filter: blur(12px);
+      border-top: 1px solid var(--border);
+      padding: 12px 16px;
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      z-index: 30;
+    }
+
+    .bottom-bar-inner {
+      max-width: 600px;
+      width: 100%;
+      display: flex;
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🎬 Disc → Trakt CSV</h1>
+  <span class="badge-count" id="countBadge">0 film</span>
+</header>
+
+<div class="container">
+
+  <!-- 1. SCANNER -->
+  <div class="card">
+    <div id="reader"></div>
+    <div class="scan-controls">
+      <button class="btn-primary" id="btnStartScan" onclick="toggleScanner()">📷 Démarrer le scan</button>
+      <button class="btn-secondary" onclick="manualBarcodePrompt()">⌨️ Saisir EAN</button>
+    </div>
+  </div>
+
+  <!-- 2. FICHE FILM / COFFRET -->
+  <div class="card">
+    <div id="statusBar" class="status-bar"></div>
+
+    <label>Format du disque</label>
+    <div class="format-pills" id="formatPills">
+      <div class="pill active" data-format="dvd" onclick="selectFormat('dvd')">📀 DVD</div>
+      <div class="pill" data-format="bluray" onclick="selectFormat('bluray')">💿 Blu-ray</div>
+      <div class="pill" data-format="4k" onclick="selectFormat('4k')">✨ Blu-ray 4K</div>
+    </div>
+
+    <div class="boxset-toggle" onclick="toggleBoxsetMode()">
+      <span>📦 <strong>Mode Coffret multi-films</strong> (ex. Télérama)</span>
+      <span id="boxsetIndicator">OFF</span>
+    </div>
+
+    <!-- Mode Film Unique -->
+    <div id="singleMovieFields">
+      <div class="row-2">
+        <div>
+          <label>Titre du film</label>
+          <input type="text" id="movieTitle" placeholder="Ex: Mulholland Drive" />
+        </div>
+        <div>
+          <label>Année</label>
+          <input type="number" id="movieYear" placeholder="2001" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Mode Coffret -->
+    <div id="boxsetFields" style="display:none;">
+      <label>Nom du coffret (optionnel, pour ton repérage)</label>
+      <input type="text" id="boxsetName" placeholder="Ex: Coffret Télérama Vol. 4" />
+      <label>Liste des films inclus (1 film par ligne — année entre parenthèses si connue)</label>
+      <textarea id="boxsetMovies" rows="5" placeholder="Mulholland Drive (2001)&#10;La Vie des autres (2006)&#10;In the Mood for Love (2000)"></textarea>
+    </div>
+
+    <input type="hidden" id="currentBarcode" />
+
+    <button class="btn-primary" style="width:100%;" onclick="addEntry()">➕ Ajouter à la liste</button>
+  </div>
+
+  <!-- 3. LISTE SCANNÉE -->
+  <div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; padding:0 4px;">
+      <label style="margin:0;">Collection prête pour Trakt</label>
+      <button class="btn-secondary" style="padding:6px 10px; font-size:12px;" onclick="clearAll()">Vider</button>
+    </div>
+    <div id="itemsList"></div>
+  </div>
+
+</div>
+
+<div class="bottom-bar">
+  <div class="bottom-bar-inner">
+    <button class="btn-green" style="flex:1;" onclick="exportTraktCSV()">⬇️ Exporter CSV Trakt</button>
+  </div>
+</div>
+
+<script>
+  let html5QrCode = null;
+  let isScanning = false;
+  let selectedFormat = 'dvd';
+  let isBoxsetMode = false;
+  let lastScannedCode = '';
+  let lastScanTime = 0;
+
+  let collection = JSON.parse(localStorage.getItem('trakt_disc_collection') || '[]');
+  renderList();
+
+  function selectFormat(fmt) {
+    selectedFormat = fmt;
+    document.querySelectorAll('.pill').forEach(p => {
+      p.classList.toggle('active', p.dataset.format === fmt);
+    });
+  }
+
+  function toggleBoxsetMode() {
+    isBoxsetMode = !isBoxsetMode;
+    document.getElementById('boxsetIndicator').textContent = isBoxsetMode ? 'ON' : 'OFF';
+    document.getElementById('boxsetIndicator').style.color = isBoxsetMode ? '#10b981' : '#9ca3af';
+    document.getElementById('singleMovieFields').style.display = isBoxsetMode ? 'none' : 'block';
+    document.getElementById('boxsetFields').style.display = isBoxsetMode ? 'block' : 'none';
+  }
+
+  function showStatus(msg) {
+    const bar = document.getElementById('statusBar');
+    bar.textContent = msg;
+    bar.classList.add('show');
+  }
+
+  async function toggleScanner() {
+    const btn = document.getElementById('btnStartScan');
+    if (isScanning && html5QrCode) {
+      await html5QrCode.stop();
+      isScanning = false;
+      btn.textContent = '📷 Démarrer le scan';
+      return;
+    }
+
+    html5QrCode = new Html5Qrcode("reader");
+    try {
+      await html5QrCode.start(
+        { facingMode: "environment" },
+        {
+          fps: 12,
+          qrbox: { width: 260, height: 130 },
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E
+          ]
+        },
+        onScanSuccess
+      );
+      isScanning = true;
+      btn.textContent = '⏹️ Arrêter la caméra';
+    } catch (err) {
+      showStatus("⚠️ Accès caméra refusé ou indisponible. Vérifiez que la page est ouverte en HTTPS ou utilisez 'Saisir EAN'.");
+    }
+  }
+
+  function manualBarcodePrompt() {
+    const code = prompt("Entrez le code-barres (EAN / ISBN) du boîtier :");
+    if (code && code.trim()) {
+      onScanSuccess(code.trim());
+    }
+  }
+
+  async function onScanSuccess(decodedText) {
+    const now = Date.now();
+    if (decodedText === lastScannedCode && (now - lastScanTime) < 3000) return;
+    lastScannedCode = decodedText;
+    lastScanTime = now;
+
+    if (navigator.vibrate) navigator.vibrate(100);
+    document.getElementById('currentBarcode').value = decodedText;
+    showStatus(`🔍 Recherche du code ${decodedText}...`);
+
+    const found = await lookupBarcodeCascade(decodedText);
+    if (found) {
+      detectFormatFromText(found.rawTitle);
+      const cleaned = cleanTitleAndYear(found.rawTitle);
+
+      if (/coffret|intégrale|trilogie|télérama|collection/i.test(found.rawTitle)) {
+        if (!isBoxsetMode) toggleBoxsetMode();
+        document.getElementById('boxsetName').value = cleaned.title;
+        showStatus(`📦 Coffret détecté (${found.source}) : "${found.rawTitle}". Listez les films ci-dessous.`);
+      } else {
+        if (isBoxsetMode) toggleBoxsetMode();
+        document.getElementById('movieTitle').value = cleaned.title;
+        if (cleaned.year) document.getElementById('movieYear').value = cleaned.year;
+        showStatus(`✅ Trouvé (${found.source}) : "${found.rawTitle}"`);
+      }
+    } else {
+      showStatus(`❓ Code ${decodedText} inconnu des bases publiques — saisissez le titre manuellement ci-dessous.`);
+      if (!isBoxsetMode) document.getElementById('movieTitle').focus();
+    }
+  }
+
+  // Cascade sans clé API : OpenLibrary (ISBN 978) -> Google Books (ISBN 978) -> UPCitemdb (EAN)
+  async function lookupBarcodeCascade(barcode) {
+    // 1. OpenLibrary (très bon sur les coffrets presse Télérama / Le Monde en 978...)
+    if (barcode.startsWith('978') || barcode.startsWith('979')) {
+      try {
+        const res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${barcode}&format=json&jscmd=data`);
+        const data = await res.json();
+        const book = data[`ISBN:${barcode}`];
+        if (book && book.title) {
+          return { rawTitle: book.title, source: 'OpenLibrary/ISBN' };
+        }
+      } catch (e) {}
+
+      // 2. Google Books public endpoint (sans clé API)
+      try {
+        const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${barcode}`);
+        const data = await res.json();
+        if (data.items && data.items.length > 0) {
+          const info = data.items[0].volumeInfo;
+          const full = info.subtitle ? `${info.title} - ${info.subtitle}` : info.title;
+          return { rawTitle: full, source: 'Google Books/ISBN' };
+        }
+      } catch (e) {}
+    }
+
+    // 3. UPCitemdb trial endpoint (sans clé API)
+    try {
+      const res = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${barcode}`);
+      const data = await res.json();
+      if (data.items && data.items.length > 0 && data.items[0].title) {
+        return { rawTitle: data.items[0].title, source: 'UPCitemdb' };
+      }
+    } catch (e) {}
+
+    return null;
+  }
+
+  function detectFormatFromText(text) {
+    const lower = text.toLowerCase();
+    if (lower.includes('4k') || lower.includes('uhd') || lower.includes('ultra hd')) {
+      selectFormat('4k');
+    } else if (lower.includes('blu-ray') || lower.includes('bluray') || lower.includes('blu ray')) {
+      selectFormat('bluray');
+    } else if (lower.includes('dvd')) {
+      selectFormat('dvd');
+    }
+  }
+
+  function cleanTitleAndYear(raw) {
+    let year = '';
+    const yearMatch = raw.match(/\((\d{4})\)|\[(\d{4})\]/);
+    if (yearMatch) {
+      year = yearMatch[1] || yearMatch[2];
+    }
+    let title = raw
+      .replace(/\[.*?\]/g, '')
+      .replace(/\(.*?\)/g, '')
+      .replace(/\b(blu-ray|bluray|4k|uhd|ultra hd|dvd|édition collector|steelbook|combo)\b/gi, '')
+      .replace(/[-–|]+$/g, '')
+      .trim();
+    return { title, year };
+  }
+
+  function addEntry() {
+    const barcode = document.getElementById('currentBarcode').value || '';
+    const nowIso = new Date().toISOString();
+
+    if (isBoxsetMode) {
+      const boxName = document.getElementById('boxsetName').value.trim() || 'Coffret';
+      const lines = document.getElementById('boxsetMovies').value
+        .split('\n')
+        .map(l => l.trim())
+        .filter(Boolean);
+
+      if (lines.length === 0) {
+        alert("Ajoutez au moins un titre de film dans le coffret.");
+        return;
+      }
+
+      lines.forEach(line => {
+        const parsed = cleanTitleAndYear(line);
+        collection.unshift({
+          id: crypto.randomUUID(),
+          title: parsed.title,
+          year: parsed.year,
+          format: selectedFormat,
+          boxset: boxName,
+          barcode: barcode,
+          collected_at: nowIso
+        });
+      });
+
+      document.getElementById('boxsetMovies').value = '';
+      document.getElementById('boxsetName').value = '';
+      showStatus(`✅ ${lines.length} film(s) du coffret ajoutés !`);
+    } else {
+      const title = document.getElementById('movieTitle').value.trim();
+      const year = document.getElementById('movieYear').value.trim();
+      if (!title) {
+        alert("Veuillez renseigner le titre du film.");
+        return;
+      }
+
+      collection.unshift({
+        id: crypto.randomUUID(),
+        title,
+        year,
+        format: selectedFormat,
+        boxset: '',
+        barcode,
+        collected_at: nowIso
+      });
+
+      document.getElementById('movieTitle').value = '';
+      document.getElementById('movieYear').value = '';
+      showStatus(`✅ "${title}" ajouté !`);
+    }
+
+    document.getElementById('currentBarcode').value = '';
+    saveAndRender();
+  }
+
+  function removeEntry(id) {
+    collection = collection.filter(item => item.id !== id);
+    saveAndRender();
+  }
+
+  function clearAll() {
+    if (confirm("Vider toute la liste scannée ?")) {
+      collection = [];
+      saveAndRender();
+    }
+  }
+
+  function saveAndRender() {
+    localStorage.setItem('trakt_disc_collection', JSON.stringify(collection));
+    renderList();
+  }
+
+  function renderList() {
+    const listEl = document.getElementById('itemsList');
+    document.getElementById('countBadge').textContent = `${collection.length} film${collection.length > 1 ? 's' : ''}`;
+
+    if (collection.length === 0) {
+      listEl.innerHTML = `<div class="card" style="text-align:center; color:var(--muted); font-size:14px;">Aucun disque scanné pour l'instant.</div>`;
+      return;
+    }
+
+    listEl.innerHTML = collection.map(item => {
+      const fmtLabel = item.format === '4k' ? 'Blu-ray 4K' : (item.format === 'bluray' ? 'Blu-ray' : 'DVD');
+      const tagClass = item.format === '4k' ? 'tag-4k' : (item.format === 'bluray' ? 'tag-bluray' : 'tag-dvd');
+      return `
+        <div class="item-card">
+          <div>
+            <div class="item-title">${escapeHtml(item.title)} ${item.year ? `<span style="color:var(--muted); font-weight:400;">(${item.year})</span>` : ''}</div>
+            <div class="item-meta">
+              <span class="tag ${tagClass}">${fmtLabel}</span>
+              ${item.boxset ? `<span class="tag tag-box">📦 ${escapeHtml(item.boxset)}</span>` : ''}
+              ${item.barcode ? `<span>EAN: ${escapeHtml(item.barcode)}</span>` : ''}
+            </div>
+          </div>
+          <button class="btn-del" onclick="removeEntry('${item.id}')">✕</button>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+  }
+
+  // Export CSV aux colonnes exactes attendues par Trakt Collection
+  function exportTraktCSV() {
+    if (collection.length === 0) {
+      alert("Votre liste est vide.");
+      return;
+    }
+
+    const headers = ['title', 'year', 'media_type', 'resolution', 'collected_at', 'boxset', 'barcode'];
+    const rows = collection.map(item => {
+      const mediaType = item.format === 'dvd' ? 'dvd' : 'bluray';
+      const resolution = item.format === '4k' ? 'uhd_4k' : (item.format === 'bluray' ? 'hd_1080p' : 'sd_480p');
+      return [
+        csvEscape(item.title),
+        csvEscape(item.year),
+        mediaType,
+        resolution,
+        item.collected_at,
+        csvEscape(item.boxset),
+        csvEscape(item.barcode)
+      ].join(',');
+    });
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `trakt_collection_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function csvEscape(val) {
+    const s = String(val || '');
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  }
+</script>
+</body>
+</html>
